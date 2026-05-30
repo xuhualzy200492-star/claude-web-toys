@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🎵 交互式点歌电台</title>
+<style>
+  :root{
+    --bg:#0a0a12; --panel:#14141f; --panel2:#1c1c2b;
+    --neon:#00e5ff; --neon2:#ff2e97; --gold:#ffd166;
+    --text:#e8e8f0; --muted:#8a8aa0;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    font-family:"Segoe UI","Microsoft YaHei",sans-serif;
+    background:radial-gradient(circle at 20% 0%,#1a1030,#0a0a12 60%);
+    color:#e8e8f0;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:24px;
+  }
+  h1{font-size:26px;letter-spacing:2px;margin-bottom:4px;
+    background:linear-gradient(90deg,var(--neon),var(--neon2));-webkit-background-clip:text;background-clip:text;color:transparent;}
+  .sub{color:var(--muted);font-size:13px;margin-bottom:20px}
+  .app{width:100%;max-width:920px;display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  .card{background:var(--panel);border:1px solid #2a2a3d;border-radius:16px;padding:18px;box-shadow:0 8px 30px rgba(0,0,0,.4)}
+  .card h2{font-size:15px;margin-bottom:12px;color:var(--neon);letter-spacing:1px}
+
+  /* Player */
+  .player{grid-column:1/3;display:flex;gap:22px;align-items:center}
+  .vinyl{width:120px;height:120px;border-radius:50%;flex:0 0 120px;
+    background:repeating-radial-gradient(#15151f,#15151f 2px,#222 3px,#15151f 4px);
+    border:6px solid #0c0c14;position:relative;display:flex;align-items:center;justify-content:center;
+    box-shadow:0 0 30px rgba(0,229,255,.25)}
+  .vinyl::after{content:"";width:34px;height:34px;border-radius:50%;
+    background:linear-gradient(135deg,var(--neon),var(--neon2))}
+  .vinyl.spin{animation:spin 4s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .nowinfo{flex:1;min-width:0}
+  .nowinfo .label{font-size:11px;color:var(--gold);letter-spacing:2px}
+  .nowinfo .title{font-size:20px;font-weight:600;margin:4px 0 2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .nowinfo .meta{font-size:12px;color:var(--muted)}
+  .progress{height:6px;background:#2a2a3d;border-radius:3px;margin:12px 0 6px;cursor:pointer;overflow:hidden}
+  .progress .bar{height:100%;width:0;background:linear-gradient(90deg,var(--neon),var(--neon2))}
+  .times{display:flex;justify-content:space-between;font-size:11px;color:var(--muted)}
+  .controls{display:flex;align-items:center;gap:14px;margin-top:10px}
+  .controls button{background:var(--panel2);border:1px solid #33334a;color:#e8e8f0;width:42px;height:42px;
+    border-radius:50%;font-size:16px;cursor:pointer;transition:.15s}
+  .controls button:hover{border-color:var(--neon);box-shadow:0 0 12px rgba(0,229,255,.4)}
+  .controls .play{width:54px;height:54px;font-size:20px;background:linear-gradient(135deg,var(--neon),var(--neon2));border:none;color:#0a0a12}
+  .vol{display:flex;align-items:center;gap:8px;margin-left:auto}
+  .vol input{width:90px;accent-color:var(--neon)}
+
+  /* Channels */
+  .chan{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;cursor:pointer;
+    border:1px solid transparent;transition:.15s}
+  .chan:hover{background:var(--panel2)}
+  .chan.active{border-color:var(--neon);background:var(--panel2)}
+  .chan .dot{width:10px;height:10px;border-radius:50%;background:var(--neon2);flex:0 0 10px}
+  .chan .cn{flex:1}
+  .chan .cn b{display:block;font-size:14px}
+  .chan .cn span{font-size:11px;color:var(--muted)}
+
+  /* Queue / request */
+  .reqbar{display:flex;gap:8px;margin-bottom:10px}
+  .reqbar input[type=text]{flex:1;background:var(--panel2);border:1px solid #33334a;border-radius:8px;
+    color:#e8e8f0;padding:9px 11px;font-size:13px}
+  .reqbar button,.filebtn{background:linear-gradient(135deg,var(--neon),var(--neon2));border:none;color:#0a0a12;
+    font-weight:600;border-radius:8px;padding:0 14px;cursor:pointer;font-size:13px}
+  .filebtn{display:inline-block;padding:9px 14px;margin-bottom:10px}
+  .drop{border:2px dashed #33334a;border-radius:10px;padding:14px;text-align:center;color:var(--muted);
+    font-size:12px;margin-bottom:12px;transition:.15s}
+  .drop.over{border-color:var(--neon);color:var(--neon);background:rgba(0,229,255,.06)}
+  .queue{list-style:none;max-height:240px;overflow:auto}
+  .queue li{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;font-size:13px;cursor:pointer}
+  .queue li:hover{background:var(--panel2)}
+  .queue li.playing{background:rgba(255,46,151,.12);color:#fff}
+  .queue li .idx{color:var(--muted);font-size:11px;width:18px}
+  .queue li .qt{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .queue li .del{color:var(--muted);font-size:14px;padding:2px 6px;border-radius:6px}
+  .queue li .del:hover{color:var(--neon2);background:#2a2a3d}
+  .empty{color:var(--muted);font-size:12px;text-align:center;padding:18px}
+  .modebar{display:flex;gap:8px;margin-bottom:16px}
+  .modebar button{flex:1;background:var(--panel);border:1px solid #2a2a3d;color:var(--muted);
+    padding:10px;border-radius:10px;cursor:pointer;font-size:13px}
+  .modebar button.on{color:#0a0a12;background:linear-gradient(135deg,var(--neon),var(--neon2));border:none;font-weight:600}
+  .tip{font-size:11px;color:var(--muted);margin-top:10px;line-height:1.6}
+</style>
+</head>
+<body>
+  <h1>🎵 交互式点歌电台</h1>
+  <div class="sub">FM · 调台收听 / 拖歌点播 · 双击即用</div>
+
+  <div class="modebar app" style="grid-template-columns:1fr 1fr;display:grid">
+    <button id="mRadio" class="on">📻 电台直播</button>
+    <button id="mDj">🎶 点歌模式</button>
+  </div>
+
+  <div class="app">
+    <!-- PLAYER -->
+    <div class="card player">
+      <div class="vinyl" id="vinyl"></div>
+      <div class="nowinfo">
+        <div class="label" id="nowLabel">READY</div>
+        <div class="title" id="nowTitle">请选择一个频道，或切到点歌模式</div>
+        <div class="meta" id="nowMeta">—</div>
+        <div class="progress" id="progress"><div class="bar" id="bar"></div></div>
+        <div class="times"><span id="cur">00:00</span><span id="dur" >LIVE</span></div>
+        <div class="controls">
+          <button id="prev">⏮</button>
+          <button class="play" id="play">▶</button>
+          <button id="next">⏭</button>
+          <button id="shuffle" title="随机">🔀</button>
+          <div class="vol">🔊<input type="range" id="vol" min="0" max="1" step="0.01" value="0.8"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RADIO CHANNELS -->
+    <div class="card" id="radioCard">
+      <h2>📻 电台频道</h2>
+      <div id="channels"></div>
+      <div class="tip">这些是公开音乐电台直播流。若某个台连不上，多半是网络/代理问题，换一个台即可。</div>
+    </div>
+
+    <!-- DJ / REQUEST -->
+    <div class="card" id="djCard" style="display:none">
+      <h2>🎶 点歌台</h2>
+      <div class="reqbar">
+        <input type="text" id="urlIn" placeholder="粘贴一个音频直链 (mp3/m4a/ogg…) 回车点歌">
+        <button id="addUrl">点歌</button>
+      </div>
+      <label class="filebtn">＋ 选择本地音乐文件
+        <input type="file" id="fileIn" accept="audio/*" multiple hidden>
+      </label>
+      <div class="drop" id="drop">把本地音乐文件拖到这里 🎧</div>
+      <div class="reqbar"><input type="text" id="search" placeholder="🔍 在点歌队列里搜索…"></div>
+      <ul class="queue" id="queue"></ul>
+      <div class="empty" id="qEmpty">队列空空如也，先拖几首歌或贴个链接吧～</div>
+    </div>
+  </div>
+
+  <!-- GESTURE CONTROL -->
+  <div class="app" style="margin-top:18px">
+    <div class="card" style="grid-column:1/3">
+      <h2>🖐 手势控制 <span style="color:var(--muted);font-weight:normal;font-size:12px">（摄像头隔空操作）</span></h2>
+      <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start">
+        <div style="position:relative;flex:0 0 280px">
+          <video id="cam" playsinline style="display:none"></video>
+          <canvas id="camCanvas" width="280" height="210"
+            style="width:280px;height:210px;border-radius:12px;background:#000;transform:scaleX(-1);border:1px solid #2a2a3d"></canvas>
+          <div id="gBadge" style="position:absolute;top:8px;left:8px;background:rgba(0,0,0,.6);
+            padding:4px 10px;border-radius:8px;font-size:13px">手势：—</div>
+        </div>
+        <div style="flex:1;min-width:240px">
+          <button id="gStart" class="filebtn" style="margin-bottom:14px">▶ 开启摄像头手势</button>
+          <button id="gStop" class="filebtn" style="margin-bottom:14px;background:#33334a;color:#e8e8f0;display:none">■ 关闭</button>
+          <div id="gStatus" style="font-size:12px;color:var(--muted);margin-bottom:12px">未开启</div>
+          <table style="font-size:13px;width:100%;border-collapse:collapse">
+            <tr><td style="padding:4px 0">✊ 握拳</td><td style="color:var(--neon)">暂停</td></tr>
+            <tr><td style="padding:4px 0">🖐 张开手掌</td><td style="color:var(--neon)">播放</td></tr>
+            <tr><td style="padding:4px 0">☝ 1 根手指</td><td style="color:var(--neon)">下一首 / 台</td></tr>
+            <tr><td style="padding:4px 0">✌ 2 根手指</td><td style="color:var(--neon)">上一首 / 台</td></tr>
+            <tr><td style="padding:4px 0">🤟 3 根手指</td><td style="color:var(--neon)">静音切换</td></tr>
+          </table>
+          <div class="tip">提示：手掌正对摄像头、手指朝上识别最准。首次会请求摄像头权限，点“允许”。手势触发有约 1 秒冷却，避免误触。</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <audio id="audio" crossorigin="anonymous"></audio>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+<script>
+const audio = document.getElementById('audio');
+const $ = id => document.getElementById(id);
+
+/* ---------- Radio channels (public streams) ---------- */
+const channels = [
+  {name:'Groove Salad',  desc:'Chillout / Ambient downtempo', url:'https://ice1.somafm.com/groovesalad-128-mp3'},
+  {name:'Lush',          desc:'梦幻人声电子',                 url:'https://ice1.somafm.com/lush-128-mp3'},
+  {name:'Secret Agent',  desc:'复古谍战爵士',                 url:'https://ice1.somafm.com/secretagent-128-mp3'},
+  {name:'Drone Zone',    desc:'深空氛围',                     url:'https://ice1.somafm.com/dronezone-128-mp3'},
+  {name:'Beat Blender',  desc:'Deep House 律动',              url:'https://ice1.somafm.com/beatblender-128-mp3'},
+  {name:'Indie Pop Rocks', desc:'独立流行摇滚',               url:'https://ice1.somafm.com/indiepop-128-mp3'},
+];
+
+/* ---------- State ---------- */
+let mode = 'radio';            // 'radio' | 'dj'
+let activeChan = -1;
+let queue = [];               // {title, url, isObjectURL}
+let qIndex = -1;
+let shuffle = false;
+
+/* ---------- Mode switch ---------- */
+$('mRadio').onclick = ()=>setMode('radio');
+$('mDj').onclick    = ()=>setMode('dj');
+function setMode(m){
+  mode=m;
+  $('mRadio').classList.toggle('on',m==='radio');
+  $('mDj').classList.toggle('on',m==='dj');
+  $('radioCard').style.display = m==='radio'?'':'none';
+  $('djCard').style.display    = m==='dj'?'':'none';
+  $('dur').textContent = m==='radio'?'LIVE':'00:00';
+}
+
+/* ---------- Render channels ---------- */
+const chanBox = $('channels');
+channels.forEach((c,i)=>{
+  const el=document.createElement('div');
+  el.className='chan';
+  el.innerHTML=`<div class="dot"></div><div class="cn"><b>${c.name}</b><span>${c.desc}</span></div>`;
+  el.onclick=()=>tune(i);
+  chanBox.appendChild(el);
+});
+function tune(i){
+  activeChan=i;
+  [...chanBox.children].forEach((e,j)=>e.classList.toggle('active',j===i));
+  audio.src=channels[i].url;
+  $('nowLabel').textContent='📻 ON AIR';
+  $('nowTitle').textContent=channels[i].name;
+  $('nowMeta').textContent=channels[i].desc;
+  play();
+}
+
+/* ---------- Queue (DJ) ---------- */
+function renderQueue(filter=''){
+  const ul=$('queue'); ul.innerHTML='';
+  const f=filter.trim().toLowerCase();
+  let shown=0;
+  queue.forEach((t,i)=>{
+    if(f && !t.title.toLowerCase().includes(f)) return;
+    shown++;
+    const li=document.createElement('li');
+    if(i===qIndex) li.classList.add('playing');
+    li.innerHTML=`<span class="idx">${i+1}</span><span class="qt">${t.title}</span><span class="del">✕</span>`;
+    li.querySelector('.qt').onclick=()=>playQueue(i);
+    li.querySelector('.idx').onclick=()=>playQueue(i);
+    li.querySelector('.del').onclick=(e)=>{e.stopPropagation();removeQ(i);};
+    ul.appendChild(li);
+  });
+  $('qEmpty').style.display = queue.length? 'none':'block';
+  if(queue.length && shown===0){ $('qEmpty').style.display='block'; $('qEmpty').textContent='没有匹配的歌曲'; }
+  else if(queue.length){ $('qEmpty').textContent=''; }
+}
+function addTrack(title,url,isObjectURL=false){
+  queue.push({title,url,isObjectURL});
+  renderQueue($('search').value);
+  if(mode==='dj' && qIndex<0) playQueue(0);
+}
+function removeQ(i){
+  if(queue[i].isObjectURL) URL.revokeObjectURL(queue[i].url);
+  queue.splice(i,1);
+  if(i===qIndex){ qIndex=-1; }
+  else if(i<qIndex){ qIndex--; }
+  renderQueue($('search').value);
+}
+function playQueue(i){
+  if(i<0||i>=queue.length) return;
+  qIndex=i;
+  const t=queue[i];
+  audio.src=t.url;
+  $('nowLabel').textContent='🎶 点播中';
+  $('nowTitle').textContent=t.title;
+  $('nowMeta').textContent=`第 ${i+1} / ${queue.length} 首`;
+  renderQueue($('search').value);
+  play();
+}
+function nextQueue(){
+  if(!queue.length) return;
+  let n = shuffle ? Math.floor(Math.random()*queue.length) : qIndex+1;
+  if(n>=queue.length) n=0;
+  playQueue(n);
+}
+function prevQueue(){
+  if(!queue.length) return;
+  let p = qIndex-1; if(p<0) p=queue.length-1;
+  playQueue(p);
+}
+
+/* ---------- Add by URL / file / drop ---------- */
+$('addUrl').onclick=addFromUrl;
+$('urlIn').addEventListener('keydown',e=>{if(e.key==='Enter')addFromUrl();});
+function addFromUrl(){
+  const u=$('urlIn').value.trim(); if(!u) return;
+  const name=decodeURIComponent(u.split('/').pop().split('?')[0])||'链接音频';
+  addTrack(name,u); $('urlIn').value='';
+}
+$('fileIn').addEventListener('change',e=>handleFiles(e.target.files));
+function handleFiles(files){
+  [...files].forEach(f=>{
+    if(!f.type.startsWith('audio')) return;
+    addTrack(f.name.replace(/\.[^.]+$/,''),URL.createObjectURL(f),true);
+  });
+}
+const drop=$('drop');
+['dragover','dragenter'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('over');}));
+['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('over');}));
+drop.addEventListener('drop',e=>handleFiles(e.dataTransfer.files));
+$('search').addEventListener('input',e=>renderQueue(e.target.value));
+
+/* ---------- Transport ---------- */
+$('play').onclick=()=>{ audio.paused?play():pause(); };
+$('next').onclick=()=>{ if(mode==='dj') nextQueue(); else tune((activeChan+1)%channels.length); };
+$('prev').onclick=()=>{ if(mode==='dj') prevQueue(); else tune((activeChan-1+channels.length)%channels.length); };
+$('shuffle').onclick=()=>{ shuffle=!shuffle; $('shuffle').style.color=shuffle?'#00e5ff':''; };
+$('vol').oninput=e=>audio.volume=e.target.value;
+audio.volume=0.8;
+
+function play(){ audio.play().then(()=>{ $('play').textContent='⏸'; $('vinyl').classList.add('spin'); }).catch(()=>{}); }
+function pause(){ audio.pause(); $('play').textContent='▶'; $('vinyl').classList.remove('spin'); }
+
+audio.addEventListener('ended',()=>{ if(mode==='dj') nextQueue(); });
+audio.addEventListener('play',()=>{ $('play').textContent='⏸'; $('vinyl').classList.add('spin'); });
+audio.addEventListener('pause',()=>{ $('play').textContent='▶'; $('vinyl').classList.remove('spin'); });
+audio.addEventListener('error',()=>{ $('nowLabel').textContent='⚠ 连接失败'; });
+
+/* progress */
+audio.addEventListener('timeupdate',()=>{
+  if(isFinite(audio.duration)){
+    $('bar').style.width=(audio.currentTime/audio.duration*100)+'%';
+    $('cur').textContent=fmt(audio.currentTime);
+    $('dur').textContent=fmt(audio.duration);
+  }else{
+    $('bar').style.width='100%'; $('cur').textContent='LIVE'; $('dur').textContent='∞';
+  }
+});
+$('progress').onclick=e=>{
+  if(!isFinite(audio.duration))return;
+  const r=e.currentTarget.getBoundingClientRect();
+  audio.currentTime=(e.clientX-r.left)/r.width*audio.duration;
+};
+function fmt(s){ s=Math.floor(s||0); return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0'); }
+
+/* ================= GESTURE CONTROL ================= */
+const cam=$('cam'), camCanvas=$('camCanvas'), cctx=camCanvas.getContext('2d');
+let hands=null, rafId=null, stream=null, running=false;
+
+/* unified actions reusing existing controls */
+const act = {
+  play(){ if(audio.src) play(); else if(mode==='radio') tune(0); else nextQueue(); },
+  pause(){ pause(); },
+  next(){ $('next').click(); },
+  prev(){ $('prev').click(); },
+  mute(){ audio.muted=!audio.muted; $('gStatus').textContent = audio.muted?'已静音':'取消静音'; }
+};
+
+/* gesture debounce */
+let lastCount=-1, stableSince=0, lastFired=0, lastAction='';
+const HOLD=350, COOLDOWN=1100;
+function handleGesture(count){
+  const now=performance.now();
+  if(count!==lastCount){ lastCount=count; stableSince=now; return; }
+  if(now-stableSince < HOLD) return;
+  if(now-lastFired < COOLDOWN) return;
+  let action=null,label='';
+  switch(count){
+    case 0: action='pause'; label='✊ 暂停'; break;
+    case 1: action='next';  label='☝ 下一首'; break;
+    case 2: action='prev';  label='✌ 上一首'; break;
+    case 3: action='mute';  label='🤟 静音'; break;
+    case 4: case 5: action='play'; label='🖐 播放'; break;
+  }
+  if(action && action!==lastAction){
+    act[action](); lastFired=now; lastAction=action;
+    $('gBadge').textContent='手势：'+label;
+    $('gBadge').style.color='#00e5ff';
+    setTimeout(()=>$('gBadge').style.color='',600);
+  } else if(action){ lastFired=now; }
+}
+
+/* count extended fingers from 21 landmarks (mirror-agnostic, fingers-up) */
+function countFingers(lm){
+  let c=0;
+  // index, middle, ring, pinky: tip above PIP joint (smaller y = higher)
+  const pairs=[[8,6],[12,10],[16,14],[20,18]];
+  for(const [tip,pip] of pairs){ if(lm[tip].y < lm[pip].y - 0.02) c++; }
+  // thumb: tip far from index-mcp horizontally
+  const dx=Math.abs(lm[4].x-lm[2].x), dy=Math.abs(lm[4].y-lm[2].y);
+  if(dx>0.08 && dx>dy) c++;
+  return c;
+}
+
+function drawHand(lm){
+  cctx.save();
+  const W=camCanvas.width,H=camCanvas.height;
+  const E=[[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],
+           [9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
+  cctx.strokeStyle='#00e5ff'; cctx.lineWidth=2;
+  for(const [a,b] of E){ cctx.beginPath(); cctx.moveTo(lm[a].x*W,lm[a].y*H); cctx.lineTo(lm[b].x*W,lm[b].y*H); cctx.stroke(); }
+  cctx.fillStyle='#ff2e97';
+  for(const p of lm){ cctx.beginPath(); cctx.arc(p.x*W,p.y*H,3,0,7); cctx.fill(); }
+  cctx.restore();
+}
+
+function onResults(res){
+  cctx.clearRect(0,0,camCanvas.width,camCanvas.height);
+  cctx.drawImage(res.image,0,0,camCanvas.width,camCanvas.height);
+  if(res.multiHandLandmarks && res.multiHandLandmarks.length){
+    const lm=res.multiHandLandmarks[0];
+    drawHand(lm);
+    const n=countFingers(lm);
+    $('gBadge').textContent='手势：'+['✊握拳','☝1指','✌2指','🤟3指','🖐4指','🖐5指'][n];
+    handleGesture(n);
+  }else{
+    $('gBadge').textContent='手势：未检测到手';
+    lastCount=-1; lastAction='';
+  }
+}
+
+async function loop(){
+  if(!running) return;
+  if(hands && cam.readyState>=2){ await hands.send({image:cam}); }
+  rafId=requestAnimationFrame(loop);
+}
+
+$('gStart').onclick=async()=>{
+  if(typeof Hands==='undefined'){
+    $('gStatus').textContent='⚠ MediaPipe 未加载成功（CDN 被拦？需联网/代理）。';
+    return;
+  }
+  try{
+    $('gStatus').textContent='正在请求摄像头…';
+    stream=await navigator.mediaDevices.getUserMedia({video:{width:320,height:240}});
+    cam.srcObject=stream; await cam.play();
+    if(!hands){
+      hands=new Hands({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`});
+      hands.setOptions({maxNumHands:1,modelComplexity:0,minDetectionConfidence:0.6,minTrackingConfidence:0.6});
+      hands.onResults(onResults);
+    }
+    running=true; loop();
+    $('gStart').style.display='none'; $('gStop').style.display='';
+    $('gStatus').textContent='✅ 手势识别中…把手对准镜头';
+  }catch(e){
+    $('gStatus').textContent='⚠ 摄像头打开失败：'+e.message;
+  }
+};
+$('gStop').onclick=()=>{
+  running=false; if(rafId)cancelAnimationFrame(rafId);
+  if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
+  cctx.clearRect(0,0,camCanvas.width,camCanvas.height);
+  $('gStart').style.display=''; $('gStop').style.display='none';
+  $('gStatus').textContent='已关闭'; $('gBadge').textContent='手势：—';
+};
+</script>
+</body>
+</html>

@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>🌸 手势粒子花</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{height:100%;overflow:hidden;background:#000;font-family:"Segoe UI","Microsoft YaHei",sans-serif;color:#eaeaf2}
+  #cam{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1);opacity:.55;filter:saturate(.8)}
+  #gl{position:fixed;inset:0;width:100%;height:100%}
+  #hud{position:fixed;inset:0;pointer-events:none}
+  .top{position:absolute;top:18px;left:0;right:0;text-align:center;letter-spacing:3px}
+  .top .t{font-size:13px;color:#9fe;opacity:.9}
+  .top .s{font-size:11px;color:#9aa;margin-top:4px;letter-spacing:1px}
+  .legend{position:absolute;top:18px;right:18px;background:rgba(0,0,0,.45);border:1px solid #233;border-radius:10px;
+    padding:12px 14px;font-size:12px;line-height:1.9;backdrop-filter:blur(6px)}
+  .legend b{color:#5ef}
+  .gesture{position:absolute;left:18px;bottom:18px;background:rgba(0,0,0,.5);border:1px solid #233;border-radius:10px;
+    padding:10px 16px;font-size:15px;backdrop-filter:blur(6px)}
+  #handcv{position:absolute;right:18px;bottom:18px;width:200px;height:150px;border-radius:10px;
+    background:rgba(0,0,0,.4);border:1px solid #233}
+  .start{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    background:radial-gradient(circle at 50% 40%,#1a0e2e,#000 70%);z-index:10;text-align:center;gap:18px}
+  .start h1{font-size:30px;background:linear-gradient(90deg,#5ef,#f6a);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .start p{color:#9aa;font-size:13px;max-width:420px;line-height:1.8}
+  .start button{margin-top:6px;padding:13px 28px;border:none;border-radius:30px;font-size:15px;font-weight:600;cursor:pointer;
+    color:#0a0a12;background:linear-gradient(135deg,#5ef,#f6a);box-shadow:0 0 30px rgba(94,238,255,.4)}
+  .err{color:#f88;font-size:12px;min-height:16px}
+</style>
+</head>
+<body>
+  <video id="cam" playsinline muted></video>
+  <canvas id="gl"></canvas>
+  <div id="hud">
+    <div class="top">
+      <div class="t">🌸 手势粒子花 · ACTIVE</div>
+      <div class="s">张开手掌→绽放　握拳→聚核旋转　捏合→缩放　移动→跟随指尖</div>
+    </div>
+    <div class="legend">
+      <div><b>🖐 张开手掌</b> 绽放成花</div>
+      <div><b>✊ 握拳</b> 聚成核心+旋转</div>
+      <div><b>🤏 拇指食指</b> 捏合缩放</div>
+      <div><b>↔ 移动手</b> 花朵跟随</div>
+    </div>
+    <div class="gesture" id="gtxt">手势：—</div>
+    <canvas id="handcv" width="200" height="150"></canvas>
+  </div>
+
+  <div class="start" id="startScreen">
+    <h1>🌸 手势粒子花</h1>
+    <p>用摄像头隔空控制一团 3D 粒子：张开手掌让花朵在指尖绽放，握拳聚成旋转核心，拇指与食指捏合可缩放。<br>全程本地运行，画面不上传。</p>
+    <button id="startBtn">▶ 开启摄像头 · 开始</button>
+    <div class="err" id="err"></div>
+  </div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+<script>
+const $=id=>document.getElementById(id);
+const cam=$('cam');
+
+/* ---------------- Three.js scene ---------------- */
+let renderer,scene,camera,points,geo,mat;
+const N=7000;
+const cur=new Float32Array(N*3);       // current positions
+const flowerPos=new Float32Array(N*3); // bloom target
+const corePos=new Float32Array(N*3);   // fist core target
+const colors=new Float32Array(N*3);
+
+function fib(i,n){ // fibonacci sphere unit vector
+  const y=1-(i/(n-1))*2, r=Math.sqrt(1-y*y), phi=i*2.399963;
+  return [Math.cos(phi)*r, y, Math.sin(phi)*r];
+}
+function buildTargets(){
+  for(let i=0;i<N;i++){
+    // --- flower (layered rose curve) ---
+    const layer=i%5;
+    const t=i*2.399963;
+    const k=5;                         // petals
+    const rr=Math.cos(k*t)*0.5+0.6;    // rose radius
+    const rad=rr*(1+layer*0.18);
+    const fx=Math.cos(t)*rad;
+    const fz=Math.sin(t)*rad;
+    const fy=(layer-2)*0.18 + Math.sin(t*2)*0.12;
+    flowerPos[i*3]=fx; flowerPos[i*3+1]=fy; flowerPos[i*3+2]=fz;
+    // --- core (small sphere) ---
+    const v=fib(i,N);
+    corePos[i*3]=v[0]*0.32; corePos[i*3+1]=v[1]*0.32; corePos[i*3+2]=v[2]*0.32;
+    // --- color: pink->cyan by index ---
+    const m=i/N;
+    colors[i*3]=0.9-0.6*m;   // R
+    colors[i*3+1]=0.3+0.6*m; // G
+    colors[i*3+2]=0.6+0.4*m; // B
+    // start position = core
+    cur[i*3]=corePos[i*3]; cur[i*3+1]=corePos[i*3+1]; cur[i*3+2]=corePos[i*3+2];
+  }
+}
+function initGL(){
+  renderer=new THREE.WebGLRenderer({canvas:$('gl'),alpha:true,antialias:true});
+  renderer.setSize(innerWidth,innerHeight); renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+  scene=new THREE.Scene();
+  camera=new THREE.PerspectiveCamera(55,innerWidth/innerHeight,0.1,100);
+  camera.position.z=3.4;
+  buildTargets();
+  geo=new THREE.BufferGeometry();
+  geo.setAttribute('position',new THREE.BufferAttribute(cur,3));
+  geo.setAttribute('color',new THREE.BufferAttribute(colors,3));
+  mat=new THREE.PointsMaterial({size:0.028,vertexColors:true,transparent:true,opacity:0.95,
+    blending:THREE.AdditiveBlending,depthWrite:false});
+  points=new THREE.Points(geo,mat);
+  scene.add(points);
+  addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});
+}
+
+/* ---------------- Hand state (smoothed) ---------------- */
+let target={x:0,y:0,open:0.5,scale:1,present:false,spin:0};
+let sm={x:0,y:0,open:0.5,scale:1,spin:0};
+
+/* ---------------- MediaPipe ---------------- */
+const hcv=$('handcv'), hctx=hcv.getContext('2d');
+let hands,stream,running=false;
+
+function dist(a,b){return Math.hypot(a.x-b.x,a.y-b.y,(a.z||0)-(b.z||0));}
+function onResults(res){
+  hctx.clearRect(0,0,hcv.width,hcv.height);
+  hctx.save();hctx.scale(-1,1);hctx.translate(-hcv.width,0);
+  hctx.globalAlpha=.5;hctx.drawImage(res.image,0,0,hcv.width,hcv.height);hctx.globalAlpha=1;
+  if(res.multiHandLandmarks&&res.multiHandLandmarks.length){
+    const lm=res.multiHandLandmarks[0];
+    // draw skeleton
+    const E=[[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
+    hctx.strokeStyle='#5ef';hctx.lineWidth=1.5;
+    for(const[a,b]of E){hctx.beginPath();hctx.moveTo(lm[a].x*hcv.width,lm[a].y*hcv.height);hctx.lineTo(lm[b].x*hcv.width,lm[b].y*hcv.height);hctx.stroke();}
+    hctx.fillStyle='#f6a';for(const p of lm){hctx.beginPath();hctx.arc(p.x*hcv.width,p.y*hcv.height,2,0,7);hctx.fill();}
+    // palm center & hand size
+    const pc={x:(lm[0].x+lm[5].x+lm[9].x+lm[13].x+lm[17].x)/5,y:(lm[0].y+lm[5].y+lm[9].y+lm[13].y+lm[17].y)/5};
+    const hsize=dist(lm[0],lm[9])||0.1;
+    // openness: avg fingertip distance to palm / handsize
+    let open=([8,12,16,20].reduce((s,t)=>s+dist(lm[t],pc),0)/4)/hsize;
+    open=Math.min(1,Math.max(0,(open-0.7)/1.0));
+    // pinch (thumb-index) → scale
+    const pinch=dist(lm[4],lm[8])/hsize;
+    const scale=Math.min(2.2,Math.max(0.5,pinch*1.3));
+    // position: index fingertip mapped to world (mirror x)
+    const nx=(1-lm[8].x)*2-1, ny=-(lm[8].y*2-1);
+    target.x=nx*1.8; target.y=ny*1.1; target.open=open; target.scale=scale; target.present=true;
+    target.spin=nx;
+    $('gtxt').textContent='手势：'+(open>0.6?'🖐 绽放':open<0.25?'✊ 聚核':'🤏 半开') + `　缩放 ${scale.toFixed(2)}`;
+  }else{
+    target.present=false; $('gtxt').textContent='手势：未检测到手';
+  }
+  hctx.restore();
+}
+async function loopMP(){ if(!running)return; if(hands&&cam.readyState>=2) await hands.send({image:cam}); requestAnimationFrame(loopMP); }
+
+/* ---------------- Animation ---------------- */
+function animate(){
+  requestAnimationFrame(animate);
+  // smooth toward target
+  const L=0.12;
+  if(target.present){
+    sm.x+=(target.x-sm.x)*L; sm.y+=(target.y-sm.y)*L;
+    sm.open+=(target.open-sm.open)*L; sm.scale+=(target.scale-sm.scale)*L;
+    sm.spin+=(target.spin-sm.spin)*0.05;
+  }else{
+    sm.open+=(0.0-sm.open)*0.04; sm.scale+=(1-sm.scale)*0.05;
+    sm.x+=(0-sm.x)*0.04; sm.y+=(0-sm.y)*0.04;
+  }
+  const pos=geo.attributes.position.array;
+  const blend=sm.open, s=sm.scale, cx=sm.x, cy=sm.y;
+  const tnow=performance.now()*0.0006;
+  for(let i=0;i<N;i++){
+    const j=i*3;
+    // target = lerp(core, flower, blend)*scale + center, with gentle swirl
+    let tx=corePos[j]+(flowerPos[j]-corePos[j])*blend;
+    let ty=corePos[j+1]+(flowerPos[j+1]-corePos[j+1])*blend;
+    let tz=corePos[j+2]+(flowerPos[j+2]-corePos[j+2])*blend;
+    tx*=s; ty*=s; tz*=s;
+    tx+=cx; ty+=cy;
+    pos[j]+=(tx-pos[j])*0.14;
+    pos[j+1]+=(ty-pos[j+1])*0.14;
+    pos[j+2]+=(tz-pos[j+2])*0.14;
+  }
+  geo.attributes.position.needsUpdate=true;
+  // rotate whole cloud: continuous + hand-driven
+  points.rotation.y += 0.003 + sm.spin*0.02 + (1-sm.open)*0.02; // fist spins faster
+  renderer.render(scene,camera);
+}
+
+/* ---------------- Start ---------------- */
+$('startBtn').onclick=async()=>{
+  $('err').textContent='';
+  if(typeof THREE==='undefined'){ $('err').textContent='⚠ Three.js 未加载（CDN 被拦？需联网/代理）'; return; }
+  if(typeof Hands==='undefined'){ $('err').textContent='⚠ MediaPipe 未加载（CDN 被拦？需联网/代理）'; return; }
+  try{
+    stream=await navigator.mediaDevices.getUserMedia({video:{width:640,height:480}});
+    cam.srcObject=stream; await cam.play();
+    initGL();
+    hands=new Hands({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`});
+    hands.setOptions({maxNumHands:1,modelComplexity:0,minDetectionConfidence:0.6,minTrackingConfidence:0.6});
+    hands.onResults(onResults);
+    running=true; loopMP(); animate();
+    $('startScreen').style.display='none';
+  }catch(e){ $('err').textContent='⚠ 摄像头/初始化失败：'+e.message; }
+};
+</script>
+</body>
+</html>
